@@ -23,7 +23,7 @@ jobs:
       - name: Rodar o Robô de Notícias
         env:
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-        run: python robô_geologico.py
+        run: python robo_geologico.py
 
       - name: Salvar mudanças
         run: |
