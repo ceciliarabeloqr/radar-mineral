@@ -2,8 +2,8 @@ name: Atualizar Radar Mineral
 
 on:
   schedule:
-    - cron: '0 9 * * *' # Roda todo dia às 06h (horário de Brasília)
-  workflow_dispatch: # Permite que você rode manualmente se quiser
+    - cron: '0 */3 * * *' # Roda a cada 3 horas (00:00, 03:00, 06:00...)
+  workflow_dispatch: # Permite rodar manualmente agora mesmo
 
 jobs:
   build:
@@ -25,10 +25,10 @@ jobs:
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
         run: python robo_geologico.py
 
-      - name: Salvar mudanças
+      - name: Salvar e Publicar Mudanças
         run: |
           git config --global user.name 'GitHub Action'
           git config --global user.email 'action@github.com'
           git add .
-          git commit -m "Atualização automática: $(date)" || exit 0
+          git commit -m "Atualização automática (Série Histórica): $(date)" || exit 0
           git push
