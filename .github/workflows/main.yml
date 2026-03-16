@@ -2,14 +2,18 @@ name: Atualizar Radar Mineral
 
 on:
   schedule:
-    - cron: '0 */3 * * *' # Roda a cada 3 horas para ir limpando a fila
-  workflow_dispatch:      # Permite rodar manualmente agora mesmo
+    - cron: '0 */3 * * *' # Roda a cada 3 horas
+  workflow_dispatch:      # Botão para rodar agora
+
+# Impede que o GitHub tente publicar duas vezes ao mesmo tempo (evita o erro 403/429 de conflito)
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    # Aumentamos o tempo limite para o GitHub não cancelar o robô "paciente"
-    timeout-minutes: 30 
+    timeout-minutes: 25 # Dá tempo para o robô processar com as pausas
     
     steps:
       - name: Checkout do código
@@ -33,5 +37,6 @@ jobs:
           git config --global user.name 'GitHub Action'
           git config --global user.email 'action@github.com'
           git add .
-          git commit -m "Atualização Série Histórica: $(date)" || exit 0
+          # O commit só acontece se houver mudanças reais, evitando erros de "nada para salvar"
+          git commit -m "Série Histórica Atualizada: $(date)" || exit 0
           git push
