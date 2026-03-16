@@ -11,14 +11,15 @@ GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
 genai.configure(api_key=GOOGLE_API_KEY)
 modelo = genai.GenerativeModel('gemini-2.5-flash')
 
-# 2. Máquina do Tempo: Navegar por múltiplas páginas
-paginas_para_buscar = 3 # Lê a capa, página 2 e página 3
+# 2. Configurações de Busca e Máquina do Tempo
+paginas_para_buscar = 3 
 fontes = [
     {'nome': 'Agência iNFRA', 'url_base': 'https://agenciainfra.com/blog/page/{}/', 'filtrar': True},
     {'nome': 'In The Mine', 'url_base': 'https://www.inthemine.com.br/site/page/{}/', 'filtrar': False}
 ]
 
-palavras_chave_filtro = ['mineração', 'minério', 'anm', 'mme', 'geologia', 'barragem', 'jazida', 'cobre', 'ouro', 'ferro', 'lítio', 'mineral', 'vale', 'ibram', 'setor mineral', 'cbpm']
+# Rede mais aberta para não perder notícias!
+palavras_chave_filtro = ['mineração', 'minério', 'anm', 'mme', 'geologia', 'barragem', 'jazida', 'cobre', 'ouro', 'ferro', 'lítio', 'mineral', 'vale', 'ibram', 'setor mineral', 'cbpm', 'ferrovia', 'concessão']
 termos_sujos = ['@', 'facebook', 'instagram', 'twitter', 'linkedin', 'whatsapp', 'assine', 'contato', 'anuncie', 'expediente', 'leia mais']
 headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
 
@@ -26,21 +27,20 @@ headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
 arquivo_hist = 'historico_noticias.csv'
 if os.path.exists(arquivo_hist):
     hist = pd.read_csv(arquivo_hist)
-    # Se alguma notícia antiga falhou antes, forçamos ela a voltar para a fila
     if 'resumo' in hist.columns:
         hist['resumo'] = hist['resumo'].replace(['Conteúdo insuficiente.', 'Falha', 'Conteúdo insuficiente'], 'Pendente')
         hist['resumo'] = hist['resumo'].fillna('Pendente')
 else:
     hist = pd.DataFrame(columns=['site', 'titulo', 'link', 'data_extracao', 'resumo', 'keywords'])
 
-# 4. Busca Profunda (Lendo páginas antigas)
-print("🔎 Voltando no tempo: varrendo páginas 1, 2 e 3 dos portais...")
+# 4. Busca (Pesca Inteligente e Sem YouTube)
+print("🔎 Buscando matérias (Ignorando YouTube)...")
 novas = []
 for fonte in fontes:
     for pagina in range(1, paginas_para_buscar + 1):
         url = fonte['url_base'].format(pagina)
         if pagina == 1:
-            url = url.replace('page/1/', '') # Arruma o link da capa
+            url = url.replace('page/1/', '')
         
         try:
             res = requests.get(url, headers=headers, timeout=20)
@@ -48,10 +48,15 @@ for fonte in fontes:
             for a in soup.find_all('a'):
                 titulo = " ".join(a.get_text().split())
                 link = a.get('href')
-                if len(titulo) > 28 and link and link.startswith('http') and not any(s in titulo.lower() for s in termos_sujos):
-                    if not fonte['filtrar'] or any(p in titulo.lower() for p in palavras_chave_filtro):
-                        if link not in hist['link'].values and not any(n['link'] == link for n in novas):
-                            novas.append({'site': fonte['nome'], 'titulo': titulo, 'link': link, 'resumo': 'Pendente', 'keywords': '', 'data_extracao': datetime.now().strftime('%d/%m/%Y')})
+                
+                # REGRAS RÍGIDAS CONTRA YOUTUBE E TÍTULOS CURTOS/FEIOS
+                if not link or not link.startswith('http'): continue
+                if 'youtube.com' in link.lower() or 'youtu.be' in link.lower(): continue
+                if len(titulo) < 20 or any(s in titulo.lower() for s in termos_sujos): continue
+                
+                if not fonte['filtrar'] or any(p in titulo.lower() for p in palavras_chave_filtro):
+                    if link not in hist['link'].values and not any(n['link'] == link for n in novas):
+                        novas.append({'site': fonte['nome'], 'titulo': titulo, 'link': link, 'resumo': 'Pendente', 'keywords': '', 'data_extracao': datetime.now().strftime('%d/%m/%Y')})
         except: continue
 
 # 5. Fila de Processamento
@@ -59,7 +64,7 @@ df_total = pd.concat([pd.DataFrame(novas), hist]).drop_duplicates(subset='link')
 fila = df_total[df_total['resumo'] == 'Pendente'].head(15)
 prontas = df_total[~df_total['link'].isin(fila['link'])]
 
-print(f"📈 Total na fila: {len(df_total[df_total['resumo'] == 'Pendente'])} notícias antigas e novas. Processando {len(fila)} agora...")
+print(f"📈 Total na fila: {len(df_total[df_total['resumo'] == 'Pendente'])} notícias. Processando {len(fila)} agora...")
 
 processadas = []
 for i, n in fila.iterrows():
@@ -75,7 +80,7 @@ for i, n in fila.iterrows():
             partes = resumo_ia.split('#')
             n['resumo'] = partes[0].strip()
             n['keywords'] = "#" + " #".join([p.strip() for p in partes[1:]]) if len(partes) > 1 else ""
-            time.sleep(30) # Pausa segura
+            time.sleep(30)
         else:
             n['resumo'] = 'Ignorado'
         processadas.append(n)
@@ -90,7 +95,7 @@ df_final.to_csv(arquivo_hist, index=False, encoding='utf-8-sig')
 df_exibir = df_final[~df_final['resumo'].isin(['Pendente', 'Ignorado'])].head(100)
 
 if not df_exibir.empty:
-    print(f"🎨 Atualizando site com {len(df_exibir)} notícias (incluindo antigas resgatadas).")
+    print(f"🎨 Atualizando site com {len(df_exibir)} notícias.")
     datas = sorted(df_exibir['data_extracao'].unique(), reverse=True)
     opcoes_datas = "".join([f'<option value="{d}">{d}</option>' for d in datas])
     cards_html = ""
