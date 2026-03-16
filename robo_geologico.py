@@ -22,19 +22,21 @@ palavras_chave_filtro = ['mineração', 'minério', 'anm', 'mme', 'geologia', 'b
 termos_sujos = ['@', 'facebook', 'instagram', 'twitter', 'linkedin', 'whatsapp', 'assine', 'contato', 'anuncie', 'expediente', 'leia mais']
 headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
 
-# 3. Forçar Correção do Histórico (CSV) e blindar contra erros de digitação
+# 3. Forçar Correção do Histórico (CSV)
 arquivo_hist = 'historico_noticias.csv'
 if os.path.exists(arquivo_hist):
-    hist = pd.read_csv(arquivo_hist)
-    if 'resumo' in hist.columns:
-        # Transforma qualquer erro antigo ou minúsculo em 'Pendente' para o robô achar
-        hist['resumo'] = hist['resumo'].replace(['pendente', 'PENDENTE', 'Conteúdo insuficiente.', 'Falha', 'Conteúdo insuficiente', 'Ignorado'], 'Pendente')
-        hist['resumo'] = hist['resumo'].fillna('Pendente')
+    try:
+        hist = pd.read_csv(arquivo_hist)
+        if 'resumo' in hist.columns:
+            hist['resumo'] = hist['resumo'].replace(['pendente', 'PENDENTE', 'Conteúdo insuficiente.', 'Falha', 'Conteúdo insuficiente', 'Ignorado'], 'Pendente')
+            hist['resumo'] = hist['resumo'].fillna('Pendente')
+    except:
+        hist = pd.DataFrame(columns=['site', 'titulo', 'link', 'data_extracao', 'resumo', 'keywords'])
 else:
     hist = pd.DataFrame(columns=['site', 'titulo', 'link', 'data_extracao', 'resumo', 'keywords'])
 
 # 4. Busca Profunda
-print(f"🔎 Buscando matérias nas {paginas_para_buscar} últimas páginas (Ignorando YouTube)...")
+print(f"🔎 Buscando matérias nas {paginas_para_buscar} últimas páginas...")
 novas = []
 for fonte in fontes:
     for pagina in range(1, paginas_para_buscar + 1):
@@ -49,7 +51,6 @@ for fonte in fontes:
                 titulo = " ".join(a.get_text().split())
                 link = a.get('href')
                 
-                # REGRAS RÍGIDAS
                 if not link or not link.startswith('http'): continue
                 if 'youtube.com' in link.lower() or 'youtu.be' in link.lower(): continue
                 if len(titulo) < 20 or any(s in titulo.lower() for s in termos_sujos): continue
@@ -59,9 +60,12 @@ for fonte in fontes:
                         novas.append({'site': fonte['nome'], 'titulo': titulo, 'link': link, 'resumo': 'Pendente', 'keywords': '', 'data_extracao': datetime.now().strftime('%d/%m/%Y')})
         except: continue
 
-# 5. Fila de Processamento de Lote Seguro (15 por vez)
-df_total = pd.concat([pd.DataFrame(novas), hist]).drop_duplicates(subset='link')
-# Procura ignorando se é maiúscula ou minúscula
+# 5. Fila de Processamento de Lote Seguro
+if len(novas) > 0:
+    df_total = pd.concat([pd.DataFrame(novas), hist], ignore_index=True).drop_duplicates(subset='link')
+else:
+    df_total = hist.copy()
+
 fila = df_total[df_total['resumo'].str.contains('Pendente', case=False, na=True)].head(15)
 prontas = df_total[~df_total['link'].isin(fila['link'])]
 
@@ -81,20 +85,30 @@ for i, n in fila.iterrows():
             partes = resumo_ia.split('#')
             n['resumo'] = partes[0].strip()
             n['keywords'] = "#" + " #".join([p.strip() for p in partes[1:]]) if len(partes) > 1 else ""
-            time.sleep(30) # PAUSA DE SEGURANÇA PARA NÃO DAR ERRO NO GOOGLE
+            print("✅ Sucesso!")
         else:
             n['resumo'] = 'Ignorado'
+            print("⚠️ Texto muito curto, ignorado.")
+        
         processadas.append(n)
+        time.sleep(22) # PAUSA OBRIGATÓRIA PARA NÃO BLOQUEAR
+        
     except Exception as e:
-        print(f"❌ Falha em: {n['titulo'][:30]}. Retornando à fila.")
+        # AGORA ELE VAI NOS MOSTRAR EXATAMENTE O QUE DEU ERRADO!
+        print(f"❌ Falha em: {n['titulo'][:30]} | ERRO REAL: {str(e)}")
         n['resumo'] = 'Pendente'
         processadas.append(n)
+        time.sleep(22) # PAUSA ATÉ NO ERRO
 
 # 6. Salvar Banco de Dados CSV
-df_final = pd.concat([pd.DataFrame(processadas), prontas]).drop_duplicates(subset='link')
+if not fila.empty:
+    df_final = pd.concat([pd.DataFrame(processadas), prontas], ignore_index=True).drop_duplicates(subset='link')
+else:
+    df_final = df_total.copy()
+    
 df_final.to_csv(arquivo_hist, index=False, encoding='utf-8-sig')
 
-# 7. Gerar HTML (Apenas matérias que realmente têm resumo)
+# 7. Gerar HTML
 df_exibir = df_final[~df_final['resumo'].str.contains('Pendente|Ignorado', case=False, na=False)].head(150)
 
 if not df_exibir.empty:
