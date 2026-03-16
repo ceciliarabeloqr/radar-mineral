@@ -11,15 +11,16 @@ GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
 genai.configure(api_key=GOOGLE_API_KEY)
 modelo = genai.GenerativeModel('gemini-2.5-flash')
 
-# 2. Configurações de Busca (Escavadeira Profunda ativada para 10 páginas)
-paginas_para_buscar = 10 
+# 2. Configurações de Busca (Reduzido para 5 páginas para ficar mais leve)
+paginas_para_buscar = 5 
 fontes = [
     {'nome': 'Agência iNFRA', 'url_base': 'https://agenciainfra.com/blog/page/{}/', 'filtrar': True},
     {'nome': 'In The Mine', 'url_base': 'https://www.inthemine.com.br/site/page/{}/', 'filtrar': False}
 ]
 
 palavras_chave_filtro = ['mineração', 'minério', 'anm', 'mme', 'geologia', 'barragem', 'jazida', 'cobre', 'ouro', 'ferro', 'lítio', 'mineral', 'vale', 'ibram', 'setor mineral', 'cbpm', 'ferrovia', 'concessão']
-termos_sujos = ['@', 'facebook', 'instagram', 'twitter', 'linkedin', 'whatsapp', 'assine', 'contato', 'anuncie', 'expediente', 'leia mais']
+# ADICIONADO BLOQUEIO RIGOROSO CONTRA VÍDEOS AQUI:
+termos_sujos = ['@', 'facebook', 'instagram', 'twitter', 'linkedin', 'whatsapp', 'assine', 'contato', 'anuncie', 'expediente', 'leia mais', 'vídeo', 'video', 'tv', 'assista', 'youtube']
 headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
 
 # 3. Forçar Correção do Histórico (CSV)
@@ -35,8 +36,8 @@ if os.path.exists(arquivo_hist):
 else:
     hist = pd.DataFrame(columns=['site', 'titulo', 'link', 'data_extracao', 'resumo', 'keywords'])
 
-# 4. Busca Profunda
-print(f"🔎 Buscando matérias nas {paginas_para_buscar} últimas páginas...")
+# 4. Busca
+print(f"🔎 Buscando matérias nas {paginas_para_buscar} últimas páginas (Bloqueando vídeos)...")
 novas = []
 for fonte in fontes:
     for pagina in range(1, paginas_para_buscar + 1):
@@ -52,15 +53,15 @@ for fonte in fontes:
                 link = a.get('href')
                 
                 if not link or not link.startswith('http'): continue
-                if 'youtube.com' in link.lower() or 'youtu.be' in link.lower(): continue
                 if len(titulo) < 20 or any(s in titulo.lower() for s in termos_sujos): continue
                 
                 if not fonte['filtrar'] or any(p in titulo.lower() for p in palavras_chave_filtro):
                     if link not in hist['link'].values and not any(n['link'] == link for n in novas):
-                        novas.append({'site': fonte['nome'], 'titulo': titulo, 'link': link, 'resumo': 'Pendente', 'keywords': '', 'data_extracao': datetime.now().strftime('%d/%m/%Y')})
+                        # Colocamos 'Data a definir' para o robô preencher a data real depois
+                        novas.append({'site': fonte['nome'], 'titulo': titulo, 'link': link, 'resumo': 'Pendente', 'keywords': '', 'data_extracao': 'Data a definir'})
         except: continue
 
-# 5. Fila de Processamento de Lote Seguro
+# 5. Fila de Processamento Seguro
 if len(novas) > 0:
     df_total = pd.concat([pd.DataFrame(novas), hist], ignore_index=True).drop_duplicates(subset='link')
 else:
@@ -69,36 +70,69 @@ else:
 fila = df_total[df_total['resumo'].str.contains('Pendente', case=False, na=True)].head(15)
 prontas = df_total[~df_total['link'].isin(fila['link'])]
 
-print(f"📈 Total na fila geral: {len(df_total[df_total['resumo'].str.contains('Pendente', case=False, na=True)])} notícias. Processando lote de {len(fila)} agora...")
+print(f"📈 Total na fila: {len(df_total[df_total['resumo'].str.contains('Pendente', case=False, na=True)])} matérias. Processando 15 agora...")
 
 processadas = []
 for i, n in fila.iterrows():
     try:
-        print(f"Resumindo: {n['titulo'][:50]}...")
+        print(f"Lendo: {n['titulo'][:45]}...")
         art = requests.get(n['link'], headers=headers, timeout=15)
         s_art = BeautifulSoup(art.text, 'html.parser')
+        
+        # --- NOVO: BUSCA A DATA REAL DE PUBLICAÇÃO DA MATÉRIA ---
+        meta_data = s_art.find('meta', property='article:published_time')
+        if meta_data and meta_data.get('content'):
+            data_real = datetime.strptime(meta_data['content'][:10], '%Y-%m-%d').strftime('%d/%m/%Y')
+            n['data_extracao'] = data_real
+        elif n['data_extracao'] == 'Data a definir':
+            n['data_extracao'] = datetime.now().strftime('%d/%m/%Y')
+        
         texto = " ".join([p.get_text() for p in s_art.find_all('p') if len(p.get_text()) > 60])
         
         if len(texto) > 400:
-            prompt = f"Como geólogo especialista, resuma tecnicamente esta notícia de mineração em 1 parágrafo e adicione 3 #keywords no final. Texto: {texto[:4000]}"
-            resumo_ia = modelo.generate_content(prompt).text.strip()
-            partes = resumo_ia.split('#')
-            n['resumo'] = partes[0].strip()
-            n['keywords'] = "#" + " #".join([p.strip() for p in partes[1:]]) if len(partes) > 1 else ""
-            print("✅ Sucesso!")
+            # --- NOVO: PROMPT MAIS RÍGIDO PARA GARANTIR KEYWORDS ---
+            prompt = f"Como geólogo especialista, resuma tecnicamente esta notícia de mineração em 1 parágrafo.\n\nIMPORTANTE: Na última linha do seu texto, coloque EXATAMENTE 3 hashtags relacionadas. Formato obrigatório: #Palavra1 #Palavra2 #Palavra3\n\nTexto: {texto[:4000]}"
+            
+            sucesso = False
+            tentativas = 0
+            while not sucesso and tentativas < 3:
+                try:
+                    resumo_ia = modelo.generate_content(prompt).text.strip()
+                    sucesso = True
+                except Exception as api_err:
+                    if '429' in str(api_err):
+                        print(f"   ⏳ Google pediu pausa. Aguardando 65s...")
+                        time.sleep(65)
+                        tentativas += 1
+                    else:
+                        raise api_err
+            
+            if sucesso:
+                if '#' in resumo_ia:
+                    partes = resumo_ia.split('#')
+                    n['resumo'] = partes[0].strip()
+                    # Garante que as palavras-chave fiquem bonitas
+                    n['keywords'] = "#" + " #".join([p.strip().replace(' ', '') for p in partes[1:] if p.strip()])
+                else:
+                    n['resumo'] = resumo_ia
+                    n['keywords'] = "#Mineração #SetorMineral #Geologia" # Plano B
+                print("   ✅ Resumo e Data extraídos!")
+            else:
+                n['resumo'] = 'Pendente'
+                print("   ❌ Falha contínua.")
+                
         else:
             n['resumo'] = 'Ignorado'
-            print("⚠️ Texto muito curto, ignorado.")
+            print("   ⚠️ Texto muito curto ou vídeo, ignorado.")
         
         processadas.append(n)
-        time.sleep(22) # PAUSA OBRIGATÓRIA PARA NÃO BLOQUEAR
+        time.sleep(30) 
         
     except Exception as e:
-        # AGORA ELE VAI NOS MOSTRAR EXATAMENTE O QUE DEU ERRADO!
-        print(f"❌ Falha em: {n['titulo'][:30]} | ERRO REAL: {str(e)}")
+        print(f"❌ Erro em: {n['titulo'][:30]}")
         n['resumo'] = 'Pendente'
         processadas.append(n)
-        time.sleep(22) # PAUSA ATÉ NO ERRO
+        time.sleep(10)
 
 # 6. Salvar Banco de Dados CSV
 if not fila.empty:
@@ -112,7 +146,7 @@ df_final.to_csv(arquivo_hist, index=False, encoding='utf-8-sig')
 df_exibir = df_final[~df_final['resumo'].str.contains('Pendente|Ignorado', case=False, na=False)].head(150)
 
 if not df_exibir.empty:
-    print("🎨 Atualizando painel visual: Notícias do Setor Mineral...")
+    print("🎨 Atualizando painel visual...")
     datas = sorted(df_exibir['data_extracao'].unique(), reverse=True)
     opcoes_datas = "".join([f'<option value="{d}">{d}</option>' for d in datas])
     
