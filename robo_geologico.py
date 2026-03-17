@@ -1,3 +1,7 @@
+import warnings
+# Oculta os avisos assustadores e inúteis do Google e do Python
+warnings.filterwarnings("ignore")
+
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
@@ -6,7 +10,10 @@ import time
 import os
 from datetime import datetime
 
-# 1. Configuração da IA (Usando a biblioteca original, estável no seu servidor)
+print("🚀 A iniciar o Radar Mineral...")
+print("✅ Bibliotecas carregadas com sucesso. A configurar a Inteligência Artificial...")
+
+# 1. Configuração da IA 
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
 genai.configure(api_key=GOOGLE_API_KEY)
 modelo = genai.GenerativeModel('gemini-2.5-flash')
@@ -20,8 +27,9 @@ fontes = [
 
 palavras_chave_filtro = ['mineração', 'minério', 'anm', 'mme', 'geologia', 'barragem', 'jazida', 'cobre', 'ouro', 'ferro', 'lítio', 'mineral', 'vale', 'ibram', 'setor mineral', 'cbpm', 'ferrovia', 'concessão']
 termos_sujos = ['@', 'facebook', 'instagram', 'twitter', 'linkedin', 'whatsapp', 'assine', 'contato', 'anuncie', 'expediente', 'leia mais', 'vídeo', 'video', 'tv', 'assista', 'youtube']
-headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
+headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
 
+print("📂 A aceder à base de dados de notícias (CSV)...")
 # 3. Forçar Correção do Histórico (CSV)
 arquivo_hist = 'historico_noticias.csv'
 if os.path.exists(arquivo_hist):
@@ -35,11 +43,12 @@ if os.path.exists(arquivo_hist):
 else:
     hist = pd.DataFrame(columns=['site', 'titulo', 'link', 'data_extracao', 'resumo', 'keywords'])
 
-# 4. Busca
-print(f"🔎 A procurar matérias nas {paginas_para_buscar} últimas páginas (Bloqueando vídeos)...")
+# 4. Busca Dinâmica
+print(f"🔎 A procurar matérias novas nas últimas {paginas_para_buscar} páginas dos portais...")
 novas = []
 for fonte in fontes:
     for pagina in range(1, paginas_para_buscar + 1):
+        print(f"   -> A varrer a página {pagina} do portal {fonte['nome']}...")
         url = fonte['url_base'].format(pagina)
         if pagina == 1:
             url = url.replace('page/1/', '')
@@ -58,7 +67,7 @@ for fonte in fontes:
                         novas.append({'site': fonte['nome'], 'titulo': titulo, 'link': link, 'resumo': 'Pendente', 'keywords': '', 'data_extracao': 'Data a definir'})
         except: continue
 
-# 5. Fila de Processamento Seguro
+# 5. Fila de Processamento
 if len(novas) > 0:
     df_total = pd.concat([pd.DataFrame(novas), hist], ignore_index=True).drop_duplicates(subset='link')
 else:
@@ -67,16 +76,16 @@ else:
 fila = df_total[df_total['resumo'].str.contains('Pendente', case=False, na=True)].head(15)
 prontas = df_total[~df_total['link'].isin(fila['link'])]
 
-print(f"📈 Total na fila: {len(df_total[df_total['resumo'].str.contains('Pendente', case=False, na=True)])} matérias. A processar 15 agora...")
+print(f"📈 Extração concluída. Total na fila de espera: {len(df_total[df_total['resumo'].str.contains('Pendente', case=False, na=True)])} matérias.")
+print(f"⚙️ A iniciar o processamento do lote atual ({len(fila)} notícias)...")
 
 processadas = []
 for i, n in fila.iterrows():
     try:
-        print(f"A ler: {n['titulo'][:45]}...")
+        print(f"\n📖 A ler matéria: {n['titulo'][:45]}...")
         art = requests.get(n['link'], headers=headers, timeout=15)
         s_art = BeautifulSoup(art.text, 'html.parser')
         
-        # Leitor de Data Real da Notícia
         meta_data = s_art.find('meta', property='article:published_time')
         if meta_data and meta_data.get('content'):
             data_real = datetime.strptime(meta_data['content'][:10], '%Y-%m-%d').strftime('%d/%m/%Y')
@@ -97,7 +106,7 @@ for i, n in fila.iterrows():
                     sucesso = True
                 except Exception as api_err:
                     if '429' in str(api_err):
-                        print(f"   ⏳ A Google pediu pausa. A aguardar 65s...")
+                        print(f"   ⏳ A Google atingiu o limite. A pausar durante 65 segundos (Tentativa {tentativas+1}/3)...")
                         time.sleep(65)
                         tentativas += 1
                     else:
@@ -111,25 +120,27 @@ for i, n in fila.iterrows():
                 else:
                     n['resumo'] = resumo_ia
                     n['keywords'] = "#Mineração #SetorMineral #Geologia"
-                print("   ✅ Resumo e Data extraídos!")
+                print("   ✅ Resumo finalizado e dados extraídos com sucesso!")
             else:
                 n['resumo'] = 'Pendente'
-                print("   ❌ Falha contínua.")
+                print("   ❌ A falhar consecutivamente. Guardada para a próxima rodada.")
                 
         else:
             n['resumo'] = 'Ignorado'
-            print("   ⚠️ Texto muito curto ou vídeo, ignorado.")
+            print("   ⚠️ Detetado texto demasiado curto ou ficheiro de vídeo. Matéria ignorada.")
         
         processadas.append(n)
+        print("   ⏸️ A pausar 30 segundos por segurança...")
         time.sleep(30) 
         
     except Exception as e:
-        print(f"❌ Erro em: {n['titulo'][:30]}")
+        print(f"   ❌ Erro de ligação à página. Motivo: {str(e)[:50]}")
         n['resumo'] = 'Pendente'
         processadas.append(n)
         time.sleep(10)
 
-# 6. Guardar Base de Dados CSV
+# 6. Guardar CSV
+print("\n💾 A guardar o progresso no ficheiro CSV...")
 if not fila.empty:
     df_final = pd.concat([pd.DataFrame(processadas), prontas], ignore_index=True).drop_duplicates(subset='link')
 else:
@@ -141,7 +152,7 @@ df_final.to_csv(arquivo_hist, index=False, encoding='utf-8-sig')
 df_exibir = df_final[~df_final['resumo'].str.contains('Pendente|Ignorado', case=False, na=False)].head(150)
 
 if not df_exibir.empty:
-    print("🎨 A atualizar o painel visual...")
+    print("🎨 A construir o painel visual atualizado...")
     datas = sorted(df_exibir['data_extracao'].unique(), reverse=True)
     opcoes_datas = "".join([f'<option value="{d}">{d}</option>' for d in datas])
     
@@ -157,7 +168,7 @@ if not df_exibir.empty:
         </div>"""
     
     html_template = f"""<!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-PT">
 <head>
     <meta charset="UTF-8">
     <title>Notícias do Setor Mineral</title>
@@ -214,3 +225,4 @@ if not df_exibir.empty:
 </html>"""
     with open('index.html', 'w', encoding='utf-8') as f:
         f.write(html_template)
+    print("🎉 Painel guardado. O processo terminou com sucesso!")
