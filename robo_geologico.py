@@ -1,17 +1,16 @@
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
-import google.generativeai as genai
+from google import genai
 import time
 import os
 from datetime import datetime
 
-# 1. Configuração da IA
+# 1. Configuração da IA (Motor Novo Definitivo!)
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
-genai.configure(api_key=GOOGLE_API_KEY)
-modelo = genai.GenerativeModel('gemini-2.5-flash')
+cliente_ia = genai.Client(api_key=GOOGLE_API_KEY)
 
-# 2. Configurações de Busca (Reduzido para 5 páginas para ficar mais leve)
+# 2. Configurações de Busca
 paginas_para_buscar = 5 
 fontes = [
     {'nome': 'Agência iNFRA', 'url_base': 'https://agenciainfra.com/blog/page/{}/', 'filtrar': True},
@@ -19,7 +18,6 @@ fontes = [
 ]
 
 palavras_chave_filtro = ['mineração', 'minério', 'anm', 'mme', 'geologia', 'barragem', 'jazida', 'cobre', 'ouro', 'ferro', 'lítio', 'mineral', 'vale', 'ibram', 'setor mineral', 'cbpm', 'ferrovia', 'concessão']
-# ADICIONADO BLOQUEIO RIGOROSO CONTRA VÍDEOS AQUI:
 termos_sujos = ['@', 'facebook', 'instagram', 'twitter', 'linkedin', 'whatsapp', 'assine', 'contato', 'anuncie', 'expediente', 'leia mais', 'vídeo', 'video', 'tv', 'assista', 'youtube']
 headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
 
@@ -44,7 +42,6 @@ for fonte in fontes:
         url = fonte['url_base'].format(pagina)
         if pagina == 1:
             url = url.replace('page/1/', '')
-        
         try:
             res = requests.get(url, headers=headers, timeout=20)
             soup = BeautifulSoup(res.text, 'html.parser')
@@ -57,7 +54,6 @@ for fonte in fontes:
                 
                 if not fonte['filtrar'] or any(p in titulo.lower() for p in palavras_chave_filtro):
                     if link not in hist['link'].values and not any(n['link'] == link for n in novas):
-                        # Colocamos 'Data a definir' para o robô preencher a data real depois
                         novas.append({'site': fonte['nome'], 'titulo': titulo, 'link': link, 'resumo': 'Pendente', 'keywords': '', 'data_extracao': 'Data a definir'})
         except: continue
 
@@ -79,7 +75,6 @@ for i, n in fila.iterrows():
         art = requests.get(n['link'], headers=headers, timeout=15)
         s_art = BeautifulSoup(art.text, 'html.parser')
         
-        # --- NOVO: BUSCA A DATA REAL DE PUBLICAÇÃO DA MATÉRIA ---
         meta_data = s_art.find('meta', property='article:published_time')
         if meta_data and meta_data.get('content'):
             data_real = datetime.strptime(meta_data['content'][:10], '%Y-%m-%d').strftime('%d/%m/%Y')
@@ -90,14 +85,18 @@ for i, n in fila.iterrows():
         texto = " ".join([p.get_text() for p in s_art.find_all('p') if len(p.get_text()) > 60])
         
         if len(texto) > 400:
-            # --- NOVO: PROMPT MAIS RÍGIDO PARA GARANTIR KEYWORDS ---
-            prompt = f"Como geólogo especialista, resuma tecnicamente esta notícia de mineração em 1 parágrafo.\n\nIMPORTANTE: Na última linha do seu texto, coloque EXATAMENTE 3 hashtags relacionadas. Formato obrigatório: #Palavra1 #Palavra2 #Palavra3\n\nTexto: {texto[:4000]}"
+            prompt = f"Como geóloga especialista, resuma tecnicamente esta notícia de mineração em 1 parágrafo.\n\nIMPORTANTE: Na última linha do seu texto, coloque EXATAMENTE 3 hashtags relacionadas. Formato obrigatório: #Palavra1 #Palavra2 #Palavra3\n\nTexto: {texto[:4000]}"
             
             sucesso = False
             tentativas = 0
             while not sucesso and tentativas < 3:
                 try:
-                    resumo_ia = modelo.generate_content(prompt).text.strip()
+                    # MUDANÇA AQUI PARA O NOVO MODELO GENAI
+                    resposta = cliente_ia.models.generate_content(
+                        model='gemini-2.5-flash',
+                        contents=prompt
+                    )
+                    resumo_ia = resposta.text.strip()
                     sucesso = True
                 except Exception as api_err:
                     if '429' in str(api_err):
@@ -111,11 +110,10 @@ for i, n in fila.iterrows():
                 if '#' in resumo_ia:
                     partes = resumo_ia.split('#')
                     n['resumo'] = partes[0].strip()
-                    # Garante que as palavras-chave fiquem bonitas
                     n['keywords'] = "#" + " #".join([p.strip().replace(' ', '') for p in partes[1:] if p.strip()])
                 else:
                     n['resumo'] = resumo_ia
-                    n['keywords'] = "#Mineração #SetorMineral #Geologia" # Plano B
+                    n['keywords'] = "#Mineração #SetorMineral #Geologia"
                 print("   ✅ Resumo e Data extraídos!")
             else:
                 n['resumo'] = 'Pendente'
