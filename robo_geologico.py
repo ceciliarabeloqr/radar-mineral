@@ -6,7 +6,7 @@ import time
 import os
 from datetime import datetime
 
-# 1. Configuração da IA (Usando a biblioteca que o seu GitHub já tem instalada)
+# 1. Configuração da IA (Usando a biblioteca original, estável no seu servidor)
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
 genai.configure(api_key=GOOGLE_API_KEY)
 modelo = genai.GenerativeModel('gemini-2.5-flash')
@@ -20,7 +20,7 @@ fontes = [
 
 palavras_chave_filtro = ['mineração', 'minério', 'anm', 'mme', 'geologia', 'barragem', 'jazida', 'cobre', 'ouro', 'ferro', 'lítio', 'mineral', 'vale', 'ibram', 'setor mineral', 'cbpm', 'ferrovia', 'concessão']
 termos_sujos = ['@', 'facebook', 'instagram', 'twitter', 'linkedin', 'whatsapp', 'assine', 'contato', 'anuncie', 'expediente', 'leia mais', 'vídeo', 'video', 'tv', 'assista', 'youtube']
-headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
 
 # 3. Forçar Correção do Histórico (CSV)
 arquivo_hist = 'historico_noticias.csv'
@@ -36,7 +36,7 @@ else:
     hist = pd.DataFrame(columns=['site', 'titulo', 'link', 'data_extracao', 'resumo', 'keywords'])
 
 # 4. Busca
-print(f"🔎 Buscando matérias nas {paginas_para_buscar} últimas páginas (Bloqueando vídeos)...")
+print(f"🔎 A procurar matérias nas {paginas_para_buscar} últimas páginas (Bloqueando vídeos)...")
 novas = []
 for fonte in fontes:
     for pagina in range(1, paginas_para_buscar + 1):
@@ -67,12 +67,12 @@ else:
 fila = df_total[df_total['resumo'].str.contains('Pendente', case=False, na=True)].head(15)
 prontas = df_total[~df_total['link'].isin(fila['link'])]
 
-print(f"📈 Total na fila: {len(df_total[df_total['resumo'].str.contains('Pendente', case=False, na=True)])} matérias. Processando 15 agora...")
+print(f"📈 Total na fila: {len(df_total[df_total['resumo'].str.contains('Pendente', case=False, na=True)])} matérias. A processar 15 agora...")
 
 processadas = []
 for i, n in fila.iterrows():
     try:
-        print(f"Lendo: {n['titulo'][:45]}...")
+        print(f"A ler: {n['titulo'][:45]}...")
         art = requests.get(n['link'], headers=headers, timeout=15)
         s_art = BeautifulSoup(art.text, 'html.parser')
         
@@ -97,7 +97,7 @@ for i, n in fila.iterrows():
                     sucesso = True
                 except Exception as api_err:
                     if '429' in str(api_err):
-                        print(f"   ⏳ Google pediu pausa. Aguardando 65s...")
+                        print(f"   ⏳ A Google pediu pausa. A aguardar 65s...")
                         time.sleep(65)
                         tentativas += 1
                     else:
@@ -129,7 +129,7 @@ for i, n in fila.iterrows():
         processadas.append(n)
         time.sleep(10)
 
-# 6. Salvar Banco de Dados CSV
+# 6. Guardar Base de Dados CSV
 if not fila.empty:
     df_final = pd.concat([pd.DataFrame(processadas), prontas], ignore_index=True).drop_duplicates(subset='link')
 else:
@@ -141,7 +141,7 @@ df_final.to_csv(arquivo_hist, index=False, encoding='utf-8-sig')
 df_exibir = df_final[~df_final['resumo'].str.contains('Pendente|Ignorado', case=False, na=False)].head(150)
 
 if not df_exibir.empty:
-    print("🎨 Atualizando painel visual...")
+    print("🎨 A atualizar o painel visual...")
     datas = sorted(df_exibir['data_extracao'].unique(), reverse=True)
     opcoes_datas = "".join([f'<option value="{d}">{d}</option>' for d in datas])
     
@@ -187,7 +187,7 @@ if not df_exibir.empty:
     <div class="container">
         <div class="header">
             <h1>Notícias do Setor Mineral</h1>
-            <div class="subtitle">Monitoramento Diário e Resumos Técnicos</div>
+            <div class="subtitle">Monitorização Diária e Resumos Técnicos</div>
         </div>
         <div class="filters">
             <input type="text" id="busca" placeholder="Pesquisar por palavra-chave, empresa ou mineral..." onkeyup="filtrar()">
