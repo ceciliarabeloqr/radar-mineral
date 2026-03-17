@@ -1,5 +1,4 @@
 import warnings
-# Oculta os avisos assustadores e inúteis do Google e do Python
 warnings.filterwarnings("ignore")
 
 import pandas as pd
@@ -10,31 +9,34 @@ import time
 import os
 from datetime import datetime
 
-print("🚀 A iniciar o Radar Mineral...")
-print("✅ Bibliotecas carregadas com sucesso. A configurar a Inteligência Artificial...")
+print("🚀 A iniciar o Radar Mineral (Versão de Alta Tolerância)...")
 
-# 1. Configuração da IA 
+# 1. Configuração da IA
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
 genai.configure(api_key=GOOGLE_API_KEY)
 modelo = genai.GenerativeModel('gemini-2.5-flash')
 
 # 2. Configurações de Busca
-paginas_para_buscar = 5 
+paginas_para_buscar = 3  # Foco em velocidade e nas notícias de hoje
 fontes = [
     {'nome': 'Agência iNFRA', 'url_base': 'https://agenciainfra.com/blog/page/{}/', 'filtrar': True},
     {'nome': 'In The Mine', 'url_base': 'https://www.inthemine.com.br/site/page/{}/', 'filtrar': False}
 ]
 
-palavras_chave_filtro = ['mineração', 'minério', 'anm', 'mme', 'geologia', 'barragem', 'jazida', 'cobre', 'ouro', 'ferro', 'lítio', 'mineral', 'vale', 'ibram', 'setor mineral', 'cbpm', 'ferrovia', 'concessão']
-termos_sujos = ['@', 'facebook', 'instagram', 'twitter', 'linkedin', 'whatsapp', 'assine', 'contato', 'anuncie', 'expediente', 'leia mais', 'vídeo', 'video', 'tv', 'assista', 'youtube']
+# REDE AMPLIADA: Mais termos para garantir que as notícias de hoje não escapam
+palavras_chave_filtro = ['mineração', 'minério', 'anm', 'mme', 'geologia', 'barragem', 'jazida', 'cobre', 'ouro', 'ferro', 'lítio', 'mineral', 'vale', 'ibram', 'setor mineral', 'cbpm', 'ferrovia', 'concessão', 'sustentabilidade', 'esg', 'csn', 'gerdau', 'usiminas', 'siderurgia', 'aço', 'pesquisa mineral', 'garimpo', 'tcu', 'projeto']
+
+# Filtro mais limpo: Removemos a palavra "vídeo" para não bloquear notícias legítimas que falem de vídeos. Apenas bloqueamos o link do youtube mais abaixo.
+termos_sujos = ['@', 'facebook', 'instagram', 'twitter', 'linkedin', 'whatsapp', 'assine', 'contato', 'anuncie', 'expediente', 'leia mais']
 headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
 
-print("📂 A aceder à base de dados de notícias (CSV)...")
-# 3. Forçar Correção do Histórico (CSV)
+print("📂 A carregar o histórico...")
 arquivo_hist = 'historico_noticias.csv'
 if os.path.exists(arquivo_hist):
     try:
         hist = pd.read_csv(arquivo_hist)
+        if 'link' in hist.columns:
+            hist['link'] = hist['link'].astype(str).str.strip()
         if 'resumo' in hist.columns:
             hist['resumo'] = hist['resumo'].replace(['pendente', 'PENDENTE', 'Conteúdo insuficiente.', 'Falha', 'Conteúdo insuficiente', 'Ignorado'], 'Pendente')
             hist['resumo'] = hist['resumo'].fillna('Pendente')
@@ -43,12 +45,10 @@ if os.path.exists(arquivo_hist):
 else:
     hist = pd.DataFrame(columns=['site', 'titulo', 'link', 'data_extracao', 'resumo', 'keywords'])
 
-# 4. Busca Dinâmica
-print(f"🔎 A procurar matérias novas nas últimas {paginas_para_buscar} páginas dos portais...")
+print(f"🔎 A procurar matérias novas...")
 novas = []
 for fonte in fontes:
     for pagina in range(1, paginas_para_buscar + 1):
-        print(f"   -> A varrer a página {pagina} do portal {fonte['nome']}...")
         url = fonte['url_base'].format(pagina)
         if pagina == 1:
             url = url.replace('page/1/', '')
@@ -60,14 +60,15 @@ for fonte in fontes:
                 link = a.get('href')
                 
                 if not link or not link.startswith('http'): continue
-                if len(titulo) < 20 or any(s in titulo.lower() for s in termos_sujos): continue
+                if 'youtube.com' in link.lower() or 'youtu.be' in link.lower(): continue
+                if len(titulo) < 15 or any(s in titulo.lower() for s in termos_sujos): continue
                 
                 if not fonte['filtrar'] or any(p in titulo.lower() for p in palavras_chave_filtro):
-                    if link not in hist['link'].values and not any(n['link'] == link for n in novas):
-                        novas.append({'site': fonte['nome'], 'titulo': titulo, 'link': link, 'resumo': 'Pendente', 'keywords': '', 'data_extracao': 'Data a definir'})
+                    link_clean = link.strip()
+                    if link_clean not in hist['link'].values and not any(n['link'] == link_clean for n in novas):
+                        novas.append({'site': fonte['nome'], 'titulo': titulo, 'link': link_clean, 'resumo': 'Pendente', 'keywords': '', 'data_extracao': 'Data a definir'})
         except: continue
 
-# 5. Fila de Processamento
 if len(novas) > 0:
     df_total = pd.concat([pd.DataFrame(novas), hist], ignore_index=True).drop_duplicates(subset='link')
 else:
@@ -76,22 +77,26 @@ else:
 fila = df_total[df_total['resumo'].str.contains('Pendente', case=False, na=True)].head(15)
 prontas = df_total[~df_total['link'].isin(fila['link'])]
 
-print(f"📈 Extração concluída. Total na fila de espera: {len(df_total[df_total['resumo'].str.contains('Pendente', case=False, na=True)])} matérias.")
-print(f"⚙️ A iniciar o processamento do lote atual ({len(fila)} notícias)...")
+print(f"📈 Total na fila de espera: {len(df_total[df_total['resumo'].str.contains('Pendente', case=False, na=True)])}. A processar lote atual...")
 
 processadas = []
 for i, n in fila.iterrows():
     try:
-        print(f"\n📖 A ler matéria: {n['titulo'][:45]}...")
+        print(f"\n📖 A ler: {n['titulo'][:45]}...")
         art = requests.get(n['link'], headers=headers, timeout=15)
         s_art = BeautifulSoup(art.text, 'html.parser')
         
-        meta_data = s_art.find('meta', property='article:published_time')
-        if meta_data and meta_data.get('content'):
-            data_real = datetime.strptime(meta_data['content'][:10], '%Y-%m-%d').strftime('%d/%m/%Y')
-            n['data_extracao'] = data_real
-        elif n['data_extracao'] == 'Data a definir':
-            n['data_extracao'] = datetime.now().strftime('%d/%m/%Y')
+        # BLINDAGEM DA DATA: Se o formato da data do site for estranho, não bloqueia o programa
+        try:
+            meta_data = s_art.find('meta', property='article:published_time')
+            if meta_data and meta_data.get('content'):
+                raw_date = meta_data['content'][:10]
+                n['data_extracao'] = datetime.strptime(raw_date, '%Y-%m-%d').strftime('%d/%m/%Y')
+            elif n['data_extracao'] == 'Data a definir':
+                n['data_extracao'] = datetime.now().strftime('%d/%m/%Y')
+        except:
+            if n['data_extracao'] == 'Data a definir':
+                n['data_extracao'] = datetime.now().strftime('%d/%m/%Y')
         
         texto = " ".join([p.get_text() for p in s_art.find_all('p') if len(p.get_text()) > 60])
         
@@ -106,7 +111,7 @@ for i, n in fila.iterrows():
                     sucesso = True
                 except Exception as api_err:
                     if '429' in str(api_err):
-                        print(f"   ⏳ A Google atingiu o limite. A pausar durante 65 segundos (Tentativa {tentativas+1}/3)...")
+                        print(f"   ⏳ Google pediu pausa. Aguardando 65s...")
                         time.sleep(65)
                         tentativas += 1
                     else:
@@ -120,27 +125,25 @@ for i, n in fila.iterrows():
                 else:
                     n['resumo'] = resumo_ia
                     n['keywords'] = "#Mineração #SetorMineral #Geologia"
-                print("   ✅ Resumo finalizado e dados extraídos com sucesso!")
+                print("   ✅ Sucesso!")
             else:
                 n['resumo'] = 'Pendente'
-                print("   ❌ A falhar consecutivamente. Guardada para a próxima rodada.")
+                print("   ❌ Falha IA.")
                 
         else:
             n['resumo'] = 'Ignorado'
-            print("   ⚠️ Detetado texto demasiado curto ou ficheiro de vídeo. Matéria ignorada.")
+            print("   ⚠️ Ignorado (curto).")
         
         processadas.append(n)
-        print("   ⏸️ A pausar 30 segundos por segurança...")
-        time.sleep(30) 
+        time.sleep(25) 
         
     except Exception as e:
-        print(f"   ❌ Erro de ligação à página. Motivo: {str(e)[:50]}")
+        print(f"   ❌ Erro de página.")
         n['resumo'] = 'Pendente'
         processadas.append(n)
         time.sleep(10)
 
-# 6. Guardar CSV
-print("\n💾 A guardar o progresso no ficheiro CSV...")
+print("\n💾 A guardar dados...")
 if not fila.empty:
     df_final = pd.concat([pd.DataFrame(processadas), prontas], ignore_index=True).drop_duplicates(subset='link')
 else:
@@ -148,11 +151,10 @@ else:
     
 df_final.to_csv(arquivo_hist, index=False, encoding='utf-8-sig')
 
-# 7. Gerar HTML
 df_exibir = df_final[~df_final['resumo'].str.contains('Pendente|Ignorado', case=False, na=False)].head(150)
 
 if not df_exibir.empty:
-    print("🎨 A construir o painel visual atualizado...")
+    print("🎨 A gerar o painel visual (HTML)...")
     datas = sorted(df_exibir['data_extracao'].unique(), reverse=True)
     opcoes_datas = "".join([f'<option value="{d}">{d}</option>' for d in datas])
     
@@ -168,7 +170,7 @@ if not df_exibir.empty:
         </div>"""
     
     html_template = f"""<!DOCTYPE html>
-<html lang="pt-PT">
+<html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
     <title>Notícias do Setor Mineral</title>
@@ -198,7 +200,7 @@ if not df_exibir.empty:
     <div class="container">
         <div class="header">
             <h1>Notícias do Setor Mineral</h1>
-            <div class="subtitle">Monitorização Diária e Resumos Técnicos</div>
+            <div class="subtitle">Monitoramento Diário e Resumos Técnicos</div>
         </div>
         <div class="filters">
             <input type="text" id="busca" placeholder="Pesquisar por palavra-chave, empresa ou mineral..." onkeyup="filtrar()">
@@ -225,4 +227,4 @@ if not df_exibir.empty:
 </html>"""
     with open('index.html', 'w', encoding='utf-8') as f:
         f.write(html_template)
-    print("🎉 Painel guardado. O processo terminou com sucesso!")
+    print("🎉 Painel salvo. Rodada finalizada com sucesso!")
