@@ -1,14 +1,15 @@
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
-from google import genai
+import google.generativeai as genai
 import time
 import os
 from datetime import datetime
 
-# 1. Configuração da IA (Motor Novo Definitivo!)
+# 1. Configuração da IA (Usando a biblioteca que o seu GitHub já tem instalada)
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
-cliente_ia = genai.Client(api_key=GOOGLE_API_KEY)
+genai.configure(api_key=GOOGLE_API_KEY)
+modelo = genai.GenerativeModel('gemini-2.5-flash')
 
 # 2. Configurações de Busca
 paginas_para_buscar = 5 
@@ -19,7 +20,7 @@ fontes = [
 
 palavras_chave_filtro = ['mineração', 'minério', 'anm', 'mme', 'geologia', 'barragem', 'jazida', 'cobre', 'ouro', 'ferro', 'lítio', 'mineral', 'vale', 'ibram', 'setor mineral', 'cbpm', 'ferrovia', 'concessão']
 termos_sujos = ['@', 'facebook', 'instagram', 'twitter', 'linkedin', 'whatsapp', 'assine', 'contato', 'anuncie', 'expediente', 'leia mais', 'vídeo', 'video', 'tv', 'assista', 'youtube']
-headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
+headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
 
 # 3. Forçar Correção do Histórico (CSV)
 arquivo_hist = 'historico_noticias.csv'
@@ -75,6 +76,7 @@ for i, n in fila.iterrows():
         art = requests.get(n['link'], headers=headers, timeout=15)
         s_art = BeautifulSoup(art.text, 'html.parser')
         
+        # Leitor de Data Real da Notícia
         meta_data = s_art.find('meta', property='article:published_time')
         if meta_data and meta_data.get('content'):
             data_real = datetime.strptime(meta_data['content'][:10], '%Y-%m-%d').strftime('%d/%m/%Y')
@@ -91,12 +93,7 @@ for i, n in fila.iterrows():
             tentativas = 0
             while not sucesso and tentativas < 3:
                 try:
-                    # MUDANÇA AQUI PARA O NOVO MODELO GENAI
-                    resposta = cliente_ia.models.generate_content(
-                        model='gemini-2.5-flash',
-                        contents=prompt
-                    )
-                    resumo_ia = resposta.text.strip()
+                    resumo_ia = modelo.generate_content(prompt).text.strip()
                     sucesso = True
                 except Exception as api_err:
                     if '429' in str(api_err):
