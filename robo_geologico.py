@@ -26,7 +26,7 @@ fontes = [
 # REDE AMPLIADA: Mais termos para garantir que as notícias de hoje não escapam
 palavras_chave_filtro = ['mineração', 'minério', 'anm', 'mme', 'geologia', 'barragem', 'jazida', 'cobre', 'ouro', 'ferro', 'lítio', 'mineral', 'vale', 'ibram', 'setor mineral', 'cbpm', 'ferrovia', 'concessão', 'sustentabilidade', 'esg', 'csn', 'gerdau', 'usiminas', 'siderurgia', 'aço', 'pesquisa mineral', 'garimpo', 'tcu', 'projeto']
 
-# Filtro mais limpo: Removemos a palavra "vídeo" para não bloquear notícias legítimas que falem de vídeos. Apenas bloqueamos o link do youtube mais abaixo.
+# Filtro mais limpo: Removemos a palavra "vídeo" para não bloquear notícias legítimas que falem de vídeos. Apenas bloqueamos o link do youtube.
 termos_sujos = ['@', 'facebook', 'instagram', 'twitter', 'linkedin', 'whatsapp', 'assine', 'contato', 'anuncie', 'expediente', 'leia mais']
 headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
 
@@ -74,10 +74,11 @@ if len(novas) > 0:
 else:
     df_total = hist.copy()
 
-fila = df_total[df_total['resumo'].str.contains('Pendente', case=False, na=True)].head(15)
+# AQUI ESTÁ A MÁGICA: Reduzido de 15 para 7 para não estourar os 25 minutos do GitHub!
+fila = df_total[df_total['resumo'].str.contains('Pendente', case=False, na=True)].head(7)
 prontas = df_total[~df_total['link'].isin(fila['link'])]
 
-print(f"📈 Total na fila de espera: {len(df_total[df_total['resumo'].str.contains('Pendente', case=False, na=True)])}. A processar lote atual...")
+print(f"📈 Total na fila de espera: {len(df_total[df_total['resumo'].str.contains('Pendente', case=False, na=True)])}. A processar lote atual ({len(fila)} notícias)...")
 
 processadas = []
 for i, n in fila.iterrows():
